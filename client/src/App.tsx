@@ -1,35 +1,89 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
 const API_URL = "http://localhost:8080";
 
 function App() {
-  const [data, setData] = useState<string>();
+  const [data, setData] = useState<string | undefined>("");
+  const [token, setToken] = useState<string | null>(localStorage.getItem("service_token"));
 
-  useEffect(() => {
-    getData();
-  }, []);
-
-  const getData = async () => {
-    const response = await fetch(API_URL);
-    const { data } = await response.json();
-    setData(data);
-  };
-
-  const updateData = async () => {
-    await fetch(API_URL, {
+  const auth = useCallback(async () => {
+    const response = await fetch(`${API_URL}/auth`, {
       method: "POST",
-      body: JSON.stringify({ data }),
       headers: {
-        Accept: "application/json",
         "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        serviceId: process.env.REACT_APP_FRONT_END_ID,
+        serviceSecret: process.env.REACT_APP_FRONT_END_SECRET
+      }),
     });
 
-    await getData();
+    if (!response.ok) {
+      throw new Error("Authentication failed!");
+    }
+
+    const { token } = await response.json();
+    localStorage.setItem("service_token", token);
+    setToken(token);
+  }, []);
+
+  const getData = useCallback(async () => {
+    const response = await fetch(API_URL, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      throw new Error("Failed to fetch data");
+    }
+
+    const { data } = await response.json();
+    setData(data);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) {
+      auth();
+    } else {
+      getData();
+    }
+  }, [token, auth, getData]);
+
+
+
+  const updateData = async () => {
+    const response = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ data: data }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to update data");
+    }
+
+    getData();
   };
 
   const verifyData = async () => {
-    throw new Error("Not implemented");
+    const response = await fetch(`${API_URL}/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ data: data }),
+    });
+
+    if (response.status === 400) {
+      const body = await response.json()
+      throw new Error(body.error);
+    }
+
+    alert("Data is valid!");
   };
 
   return (
@@ -51,7 +105,7 @@ function App() {
       <input
         style={{ fontSize: "30px" }}
         type="text"
-        value={data}
+        value={data || ""}
         onChange={(e) => setData(e.target.value)}
       />
 
